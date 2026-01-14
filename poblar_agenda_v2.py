@@ -112,11 +112,19 @@ Extrae TODAS las actividades que contengan "Fase" en el nombre.
 
 Para cada actividad devuelve un objeto JSON con:
 - "title": Nombre de la actividad (ej: "Fase 1 - Evaluación del escenario")
-- "description": Máximo 80 caracteres. Solo el tipo de evidencia.
+- "description": descripción completa de la actividad
 - "start_date": Fecha inicio formato YYYY-MM-DD (FEB=02, MAR=03, ABR=04, MAY=05)
 - "end_date": Fecha cierre formato YYYY-MM-DD
 - "emoji": 🎥 para video, 💻 para código, 🔬 para práctica, 🚀 para final
 - "weight": Peso evaluativo (número)
+- "stage": Etapa del curso en la que se realiza (Inicial, Intermedia, Final)
+- "feedback_start_date": Fecha inicio retroalimentación formato YYYY-MM-DD
+- "feedback_end_date": Fecha cierre retroalimentación formato YYYY-MM-DD
+- "topic": Tema de la actividad
+- "activity_type": Tipo de actividad (ej: "Colaborativa", "Individual")
+- "deliverable": Entregable de la actividad (ej: "Documento escrito", "Presentación", "Video", "Código")
+- "unit": Unidad de la actividad (ej: "Unidad 1", "Unidad 2", "Unidad 3", "Unidad 4")
+- "recommendations": Recomendaciones de contenido para la actividad (libros, videos, etc.)
 
 Retorna SOLO el array JSON, sin explicaciones.
 
@@ -299,22 +307,49 @@ def get_tasks_db_schema(config: Config) -> dict:
     client = get_notion_client()
     
     try:
-        # Intentar recuperar directamente por ID
-        print(f"   ℹ️  Recuperando schema de DB tareas: {config.tasks_db_id}")
-        db = client.databases.retrieve(database_id=config.tasks_db_id)
-        return db.get("properties", {})
+        # Buscar la base de datos por ID
+        response = client.search(
+            filter={"property": "object", "value": "data_source"},
+            page_size=100
+        )
+
+        print(f"   📊 Search devolvió {len(response.get('results', []))} resultados")
         
-    except Exception:
-        # Si falla (ej. permisos), intentar búsqueda amplia para ver si aparece
-        try:
-            response = client.search(page_size=100)
-            for obj in response.get("results", []):
-                if obj.get("object") == "database" and normalize_db_id(obj.get("id", "")) == normalize_db_id(config.tasks_db_id):
-                    return obj.get("properties", {})
-        except Exception as e:
-            print(f"⚠️  Error buscando DB en fallback: {e}")
+        for db in response.get("results", []):
+            # Obtener nombre de la DB/Data Source
+            title = "Sin título"
+            if db.get("title"):
+                title = db["title"][0].get("plain_text", "")
             
-        print(f"⚠️  No se pudo obtener schema de la DB {config.tasks_db_id}. Verifique permisos.")
+            # Verificación por ID o por NOMBRE (Petición explícita usuario)
+            is_id_match = normalize_db_id(db.get("id", "")) == normalize_db_id(config.tasks_db_id)
+            is_name_match = title in ["To-do’s", "To-do's", "Tasks", "Tareas"]
+            
+            if is_id_match or is_name_match:
+                found_id = db.get("id")
+                object_type = db.get("object")
+                
+                print(f"      ✅ Encontrada DB candidata: '{title}' (ID: {found_id}, Type: {object_type})")
+                
+                # FIX: Si es un data_source, el ID real de la base de datos suele estar en el parent
+                if object_type == "data_source":
+                    parent = db.get("parent", {})
+                    if parent.get("type") == "database_id" and parent.get("database_id"):
+                        real_db_id = parent.get("database_id")
+                        print(f"      🔄 Resolviendo 'data_source' al ID de base de datos padre: {real_db_id}")
+                        found_id = real_db_id
+                
+                # Actualizar config si encontramos por nombre proactivamente O si resolvimos un ID diferente
+                if is_name_match or found_id != config.tasks_db_id:
+                    print(f"      🔄 Actualizando ID de Tareas a: {found_id}")
+                    config.tasks_db_id = found_id
+                    
+                return db.get("properties", {})
+        
+        print(f"⚠️  No se encontró la DB de tareas en search con ID {config.tasks_db_id} ni por nombre 'To-do’s'")
+        
+    except Exception as e:
+        print(f"⚠️  No se pudo obtener schema: {e}")
         return {}
 
 
@@ -385,14 +420,14 @@ def create_task_in_notion(
     
     # Agregar fecha si están disponibles
     if task.start_date and task.end_date:
-        properties["Due Date"] = {
+        properties["Tiempo de actividad"] = {
             "date": {
                 "start": task.start_date,
                 "end": task.end_date,
             }
         }
     elif task.end_date:
-        properties["Due Date"] = {
+        properties["Tiempo de actividad"] = {
             "date": {
                 "start": task.end_date,
             }
@@ -580,7 +615,7 @@ Ejemplos:
     relation_prop = find_relation_property(config)
     if not relation_prop:
         # Fallback a nombres comunes
-        relation_prop = "Related to Courses (Tasks)"
+        relation_prop = "Course"
         print(f"⚠️  Usando nombre de relación por defecto: '{relation_prop}'")
     
     # 6. Crear tareas
