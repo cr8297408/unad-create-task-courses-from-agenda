@@ -232,59 +232,70 @@ def find_course_page(course_name: str, config: Config) -> Optional[dict]:
     client = get_notion_client()
     
     print(f"🔍 Buscando curso: '{course_name}'...")
+    print(f"   DB de cursos esperada: {config.courses_db_id}")
     
     try:
-        # Intentar buscar con filtro por título
-        response = client.databases.query(
-            database_id=config.courses_db_id,
-            filter={
-                "property": "Name",
-                "title": {
-                    "contains": course_name
-                }
-            }
+        # Usar search API para buscar el curso
+        response = client.search(
+            query=course_name,
+            filter={"property": "object", "value": "page"},
+            page_size=20
         )
-    except Exception as e:
-        # Si falla el método databases.query, intentar con request directo
-        print(f"⚠️  databases.query falló, intentando request directo: {e}")
-        try:
-            response = client.request(
-                path=f"databases/{config.courses_db_id}/query",
-                method="POST",
-                body={
-                    "filter": {
-                        "property": "Name",
-                        "title": {
-                            "contains": course_name
-                        }
+        
+        results = response.get("results", [])
+        print(f"   📊 Search devolvió {len(results)} resultados")
+        
+        # Debug: mostrar todos los resultados
+        for i, page in enumerate(results):
+            parent = page.get("parent", {})
+            parent_type = parent.get("type", "unknown")
+            parent_id = parent.get("database_id", parent.get("page_id", "N/A"))
+            
+            # Intentar obtener título
+            props = page.get("properties", {})
+            title = "Sin título"
+            for prop_name, prop_val in props.items():
+                if prop_val.get("type") == "title":
+                    title_arr = prop_val.get("title", [])
+                    if title_arr:
+                        title = title_arr[0].get("plain_text", "Sin título")
+                    break
+            
+            print(f"   [{i+1}] '{title}' | parent: {parent_type} | parent_id: {normalize_db_id(parent_id)}")
+        
+        # Filtrar resultados que pertenezcan a la base de datos de cursos
+        for page in results:
+            parent = page.get("parent", {})
+            parent_type = parent.get("type", "")
+            
+            # Notion usa "database_id" o "data_source_id" dependiendo de la versión
+            if parent_type in ("database_id", "data_source_id"):
+                parent_db_id = normalize_db_id(parent.get("database_id", parent.get("data_source_id", "")))
+                expected_db_id = normalize_db_id(config.courses_db_id)
+                
+                if parent_db_id == expected_db_id:
+                    page_id = page["id"]
+                    
+                    # Extraer el nombre del título
+                    title_prop = page.get("properties", {}).get("Name", {})
+                    title_content = title_prop.get("title", [])
+                    title_text = title_content[0]["plain_text"] if title_content else "Sin nombre"
+                    
+                    print(f"✅ Curso encontrado: '{title_text}' (ID: {page_id})")
+                    
+                    return {
+                        "id": page_id,
+                        "name": title_text
                     }
-                }
-            )
-        except Exception as e2:
-            print(f"❌ Error buscando curso: {e2}")
-            return None
-    
-    results = response.get("results", [])
-    
-    if not results:
-        print(f"⚠️  No se encontró el curso '{course_name}'")
+        
+        print(f"⚠️  No se encontró el curso '{course_name}' en la DB {config.courses_db_id}")
         return None
-    
-    # Tomar el primer resultado
-    page = results[0]
-    page_id = page["id"]
-    
-    # Extraer el nombre del título
-    title_prop = page.get("properties", {}).get("Name", {})
-    title_content = title_prop.get("title", [])
-    title_text = title_content[0]["plain_text"] if title_content else "Sin nombre"
-    
-    print(f"✅ Curso encontrado: '{title_text}' (ID: {page_id})")
-    
-    return {
-        "id": page_id,
-        "name": title_text
-    }
+        
+    except Exception as e:
+        print(f"❌ Error buscando curso: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
 
 
 def get_tasks_db_schema(config: Config) -> dict:
@@ -295,8 +306,19 @@ def get_tasks_db_schema(config: Config) -> dict:
     client = get_notion_client()
     
     try:
-        db = client.databases.retrieve(database_id=config.tasks_db_id)
-        return db.get("properties", {})
+        # Buscar la base de datos por ID
+        response = client.search(
+            filter={"property": "object", "value": "database"},
+            page_size=100
+        )
+        
+        for db in response.get("results", []):
+            if normalize_db_id(db.get("id", "")) == normalize_db_id(config.tasks_db_id):
+                return db.get("properties", {})
+        
+        print(f"⚠️  No se encontró la DB de tareas en search")
+        return {}
+        
     except Exception as e:
         print(f"⚠️  No se pudo obtener schema: {e}")
         return {}
