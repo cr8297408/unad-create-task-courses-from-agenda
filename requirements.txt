@@ -1,4 +1,7 @@
-notion-client
-beautifulsoup4
-google-generativeai
-python-dotenv
+# UNAD Agenda Sync - Notion Integration
+# Python 3.10+ required
+
+notion-client>=2.2.0
+beautifulsoup4>=4.12.0
+google-genai>=1.0.0
+python-dotenv>=1.0.0
