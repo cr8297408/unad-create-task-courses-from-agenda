@@ -244,6 +244,7 @@ def find_course_page(course_name: str, config: Config) -> Optional[dict]:
         
         results = response.get("results", [])
         print(f"   📊 Search devolvió {len(results)} resultados")
+        print(results)
         
         # Debug: mostrar todos los resultados
         for i, page in enumerate(results):
@@ -263,32 +264,24 @@ def find_course_page(course_name: str, config: Config) -> Optional[dict]:
             
             print(f"   [{i+1}] '{title}' | parent: {parent_type} | parent_id: {normalize_db_id(parent_id)}")
         
-        # Filtrar resultados que pertenezcan a la base de datos de cursos
-        for page in results:
-            parent = page.get("parent", {})
-            parent_type = parent.get("type", "")
+        # Usar el primer resultado encontrado (Usuario solicitó ignorar parent check)
+        if results:
+            page = results[0]
+            page_id = page["id"]
             
-            # Notion usa "database_id" o "data_source_id" dependiendo de la versión
-            if parent_type in ("database_id", "data_source_id"):
-                parent_db_id = normalize_db_id(parent.get("database_id", parent.get("data_source_id", "")))
-                expected_db_id = normalize_db_id(config.courses_db_id)
-                
-                if parent_db_id == expected_db_id:
-                    page_id = page["id"]
-                    
-                    # Extraer el nombre del título
-                    title_prop = page.get("properties", {}).get("Name", {})
-                    title_content = title_prop.get("title", [])
-                    title_text = title_content[0]["plain_text"] if title_content else "Sin nombre"
-                    
-                    print(f"✅ Curso encontrado: '{title_text}' (ID: {page_id})")
-                    
-                    return {
-                        "id": page_id,
-                        "name": title_text
-                    }
+            # Extraer el nombre del título
+            title_prop = page.get("properties", {}).get("Name", {})
+            title_content = title_prop.get("title", [])
+            title_text = title_content[0]["plain_text"] if title_content else "Sin nombre"
+            
+            print(f"✅ Curso encontrado: '{title_text}' (ID: {page_id})")
+            
+            return {
+                "id": page_id,
+                "name": title_text
+            }
         
-        print(f"⚠️  No se encontró el curso '{course_name}' en la DB {config.courses_db_id}")
+        print(f"⚠️  No se encontró el curso '{course_name}'")
         return None
         
     except Exception as e:
@@ -306,21 +299,22 @@ def get_tasks_db_schema(config: Config) -> dict:
     client = get_notion_client()
     
     try:
-        # Buscar la base de datos por ID
-        response = client.search(
-            filter={"property": "object", "value": "database"},
-            page_size=100
-        )
+        # Intentar recuperar directamente por ID
+        print(f"   ℹ️  Recuperando schema de DB tareas: {config.tasks_db_id}")
+        db = client.databases.retrieve(database_id=config.tasks_db_id)
+        return db.get("properties", {})
         
-        for db in response.get("results", []):
-            if normalize_db_id(db.get("id", "")) == normalize_db_id(config.tasks_db_id):
-                return db.get("properties", {})
-        
-        print(f"⚠️  No se encontró la DB de tareas en search")
-        return {}
-        
-    except Exception as e:
-        print(f"⚠️  No se pudo obtener schema: {e}")
+    except Exception:
+        # Si falla (ej. permisos), intentar búsqueda amplia para ver si aparece
+        try:
+            response = client.search(page_size=100)
+            for obj in response.get("results", []):
+                if obj.get("object") == "database" and normalize_db_id(obj.get("id", "")) == normalize_db_id(config.tasks_db_id):
+                    return obj.get("properties", {})
+        except Exception as e:
+            print(f"⚠️  Error buscando DB en fallback: {e}")
+            
+        print(f"⚠️  No se pudo obtener schema de la DB {config.tasks_db_id}. Verifique permisos.")
         return {}
 
 
