@@ -1,0 +1,4 @@
+notion-client
+beautifulsoup4
+google-generativeai
+python-dotenv
