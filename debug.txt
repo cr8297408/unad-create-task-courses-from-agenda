@@ -1,0 +1,29 @@
+ 94  1 fish                                                                                                 ! 1M main  CPU   6%   RAM 3GB/8 GB 
+   [20] 'Fase 4 - Arquitectura de estructuras binarias' | parent: data_source_id | parent_id: e8302bd04ef74cd5ab03f57e4990f23d
+✅ Curso encontrado: 'Tarea 3 - Diseño de operaciones de álgebra relacional' (ID: 2e9e4067-79e8-81ad-9841-ce62998e003e)
+   📊 Search devolvió 42 resultados
+      ✅ Encontrada DB candidata: 'To-do’s' (ID: 19ad992f-2add-4529-bb75-8fc374e26a05, Type: data_source)
+      🔄 Resolviendo 'data_source' al ID de base de datos padre: e8302bd0-4ef7-4cd5-ab03-f57e4990f23d
+      🔄 Actualizando ID de Tareas a: e8302bd0-4ef7-4cd5-ab03-f57e4990f23d
+   🔍 Verificando propiedad 'Course' (tipo: relation)
+      ID de DB relacionada: 'b4b5cac873f743c694183fab85b7c9e9'
+      ID de DB de cursos esperada: 'a7a08916755a46f8bd08a1b4234119b8'
+      ❌ No coincide la DB relacionada para 'Course'.
+⚠️   Usando nombre de relación por defecto: 'Course'
+
+--- Sincronización ---
+✅ Creada: 🎥 Fase 1 - Evaluación del escenario
+✅ Creada: 💻 Fase 2 - Abstracción y Diseño
+✅ Creada: 🔬 Fase 3 - Componente práctico - Prácticas Simuladas
+✅ Creada: 💻 Fase 4 - Arquitectura de estructuras binarias
+✅ Creada: 🚀 Fase 5 - Validación integral y sustentación
+
+============================================================
+📊 RESUMEN
+============================================================
+   ✅ Creadas: 5
+   ❌ Fallidas: 0
+   📚 Curso: ESTRUCTURAS DE DATOS
+
+…/unad-create-task-courses-from-agenda ->  main                                                                             took  18s    19:46 
+󱗞  

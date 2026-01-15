@@ -206,11 +206,24 @@ def extract_tasks_with_gemini(html_content: str, config: Config) -> list[Task]:
         raise ValueError(f"Se esperaba una lista, se recibió: {type(tasks_data)}")
     
     tasks = []
+    import html
     for i, task_dict in enumerate(tasks_data):
         try:
+            # Helper to clean text
+            def clean(text):
+                if not text: return None
+                return html.unescape(text).strip()
+
+            # Helper to sanitize for multi-select (no commas)
+            def clean_select(text):
+                if not text: return None
+                # Unescape first, then replace commas
+                txt = html.unescape(text).strip()
+                return txt.replace(",", " ")
+
             task = Task(
-                title=task_dict.get("title", f"Tarea {i+1}"),
-                description=task_dict.get("description", ""),
+                title=clean(task_dict.get("title", f"Tarea {i+1}")) or f"Tarea {i+1}",
+                description=clean(task_dict.get("description", "")),
                 start_date=task_dict.get("start_date", ""),
                 end_date=task_dict.get("end_date", ""),
                 emoji=task_dict.get("emoji", "📚"),
@@ -218,11 +231,11 @@ def extract_tasks_with_gemini(html_content: str, config: Config) -> list[Task]:
                 stage=task_dict.get("stage"),
                 feedback_start_date=task_dict.get("feedback_start_date"),
                 feedback_end_date=task_dict.get("feedback_end_date"),
-                topic=task_dict.get("topic"),
+                topic=clean(task_dict.get("topic")),
                 activity_type=task_dict.get("activity_type"),
-                deliverable=task_dict.get("deliverable"),
-                unit=task_dict.get("unit"),
-                recommendations=task_dict.get("recommendations"),
+                deliverable=clean_select(task_dict.get("deliverable")),
+                unit=clean_select(task_dict.get("unit")),
+                recommendations=clean(task_dict.get("recommendations")),
             )
             tasks.append(task)
         except Exception as e:
@@ -259,59 +272,59 @@ def find_course_page(course_name: str, config: Config) -> Optional[dict]:
     print(f"   DB de cursos esperada: {config.courses_db_id}")
     
     try:
-        # Usar search API para buscar el curso
+        # Usar search API para buscar el curso (método robusto)
+        # Filtramos manualmente para asegurar coincidencia EXACTA
+        print(f"   🔍 Ejecutando búsqueda global por: '{course_name}'")
+        
         response = client.search(
             query=course_name,
             filter={"property": "object", "value": "page"},
-            page_size=20
+            page_size=100  # Traer suficientes para filtrar
         )
         
         results = response.get("results", [])
-        print(f"   📊 Search devolvió {len(results)} resultados")
-        print(results)
+        print(f"   📊 Search retornó {len(results)} candidatos potenciales")
         
-        # Debug: mostrar todos los resultados
-        for i, page in enumerate(results):
-            parent = page.get("parent", {})
-            parent_type = parent.get("type", "unknown")
-            parent_id = parent.get("database_id", parent.get("page_id", "N/A"))
-            
-            # Intentar obtener título
-            props = page.get("properties", {})
-            title = "Sin título"
-            for prop_name, prop_val in props.items():
-                if prop_val.get("type") == "title":
-                    title_arr = prop_val.get("title", [])
-                    if title_arr:
-                        title = title_arr[0].get("plain_text", "Sin título")
-                    break
-            
-            print(f"   [{i+1}] '{title}' | parent: {parent_type} | parent_id: {normalize_db_id(parent_id)}")
+        expected_db_id = normalize_db_id(config.courses_db_id)
         
-        # Usar el primer resultado encontrado (Usuario solicitó ignorar parent check)
-        if results:
-            page = results[0]
+        for page in results:
             page_id = page["id"]
             
-            # Extraer el nombre del título
+            # 1. Validar Parent DB (Solo informativo, usuario pidió ignorar esto)
+            parent = page.get("parent", {})
+            parent_id = parent.get("database_id")
+            normalized_pid = normalize_db_id(parent_id) if parent_id else "None"
+            
+            # 2. Extraer y Validar Nombre Exacto
             title_prop = page.get("properties", {}).get("Name", {})
             title_content = title_prop.get("title", [])
-            title_text = title_content[0]["plain_text"] if title_content else "Sin nombre"
+            title_text = title_content[0]["plain_text"] if title_content else ""
             
-            print(f"✅ Curso encontrado: '{title_text}' (ID: {page_id})")
+            print(f"      👀 Revisando: '{title_text}' (ID: {page_id}) | Parent: {normalized_pid}")
             
-            return {
-                "id": page_id,
-                "name": title_text
-            }
-        
-        print(f"⚠️  No se encontró el curso '{course_name}'")
+            # Chequeo estricto SOLO de nombre
+            name_match = (title_text.strip().lower() == course_name.strip().lower())
+            
+            if name_match:
+                print(f"      ✅ MATCH EXACTO ENCONTRADO (Nombre): '{title_text}'")
+                
+                if normalized_pid != expected_db_id:
+                     print(f"      ⚠️  Nota: El parent ID ({normalized_pid}) no coincide con el esperado ({expected_db_id}), pero se acepta por nombre.")
+                
+                return {
+                    "id": page_id,
+                    "name": title_text
+                }
+            
+            # Solo loguear rechazo si el nombre no coincide
+            if not name_match:
+                 print(f"         ❌ Descartado: El nombre no coincide exactamente ('{title_text}' != '{course_name}')")
+
+        print(f"⚠️  No se encontró coincidencia exacta para '{course_name}' en {len(results)} resultados")
         return None
         
     except Exception as e:
         print(f"❌ Error buscando curso: {e}")
-        import traceback
-        traceback.print_exc()
         return None
 
 
@@ -384,9 +397,18 @@ def find_relation_property(config: Config) -> Optional[str]:
             relation_config = prop_config.get("relation", {})
             related_db = relation_config.get("database_id", "")
             
-            if normalize_db_id(related_db) == normalize_db_id(config.courses_db_id):
-                print(f"📎 Propiedad de relación encontrada: '{prop_name}'")
+            expected_db_id = normalize_db_id(config.courses_db_id)
+            normalized_related_db = normalize_db_id(related_db)
+
+            print(f"   🔍 Verificando propiedad '{prop_name}' (tipo: relation)")
+            print(f"      ID de DB relacionada: '{normalized_related_db}'")
+            print(f"      ID de DB de cursos esperada: '{expected_db_id}'")
+            
+            if normalized_related_db == expected_db_id:
+                print(f"      ✅ Coincidencia de relación encontrada: '{prop_name}'")
                 return prop_name
+            else:
+                print(f"      ❌ No coincide la DB relacionada para '{prop_name}'.")
     
     return None
 
@@ -542,30 +564,13 @@ def create_task_in_notion(
 
 def extract_course_name_from_html(html_path: Path) -> str:
     """
-    Extrae el nombre del curso del archivo HTML.
-    
-    Intenta extraer del título HTML primero, luego del nombre del archivo.
+    Devuelve el nombre del archivo como nombre del curso.
+    Anteriormente intentaba extraer del HTML, pero generaba falsos positivos.
     """
-    try:
-        content = html_path.read_text(encoding="utf-8")
-        
-        # Buscar en el tag <title>
-        # Formato típico: "Agenda - 301305 - ESTRUCTURAS DE DATOS - 2026 I PERIODO 16-01 (2201)"
-        title_match = re.search(r"<title>.*?-\s*\d+\s*-\s*(.+?)\s*-\s*\d{4}", content)
-        if title_match:
-            return title_match.group(1).strip()
-        
-        # Buscar en el contenido del curso
-        # <p>ESTRUCTURAS DE DATOS - Curso Metodológico (TP) - 301305 de 3 créditos</p>
-        content_match = re.search(r"<p>([A-ZÁÉÍÓÚÑ\s]+)\s*-\s*Curso", content)
-        if content_match:
-            return content_match.group(1).strip()
-            
-    except Exception:
-        pass
-    
-    # Fallback: usar nombre del archivo sin extensión
-    return html_path.stem
+    # decode URL encoding just in case (e.g. %20 -> space)
+    import urllib.parse
+    name = urllib.parse.unquote(html_path.stem)
+    return name.strip()
 
 
 def main():
