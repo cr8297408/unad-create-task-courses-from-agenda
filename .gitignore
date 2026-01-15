@@ -5,3 +5,5 @@ venv
 gemini_response.txt
 
 debug_notion_dump.json
+
+*.html

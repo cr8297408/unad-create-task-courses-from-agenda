@@ -116,7 +116,7 @@ class Task:
 
 EXTRACTION_PROMPT = """Analiza este HTML de una agenda de curso universitario UNAD (Colombia).
 
-Extrae TODAS las actividades que contengan "Fase" en el nombre.
+Extrae TODAS las actividades de la agenda. Busca filas en la tabla que contengan nombres de actividad como "Fase", "Tarea", "Paso", "Evaluación", "Quiz", "Unidad", etc.
 
 Para cada actividad devuelve un objeto JSON con:
 - "title": Nombre de la actividad (ej: "Fase 1 - Evaluación del escenario")

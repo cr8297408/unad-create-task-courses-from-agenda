@@ -52,7 +52,15 @@ GEMINI_MODEL=gemini-2.5-flash
 **Base de datos Tasks:**
 - `Name` (Title): Nombre de la tarea
 - `Due Date` (Date): Fecha de entrega (start/end)
-- Propiedad de relación a Courses (el script la detecta automáticamente)
+- `Related to Courses` (Relation): Relación a la base de datos de Courses
+- `Puntos` (Number): Peso evaluativo de la actividad
+- `Etapa` (Select): 'Inicial', 'Intermedia', 'Final'
+- `Tema` (Rich Text): Tema principal de la actividad
+- `Tipo Actividad` (Select): 'Individual', 'Colaborativa'
+- `Tipo Entregable` (Multi-select): 'PDF', 'Zip', 'Foro', etc.
+- `Unidad` (Multi-select): Unidad a la que pertenece (e.g., 'Unidad 1')
+- `Year` (Select): Periodo académico (e.g., '2026-1')
+- `Entrega Retroalimentación` (Date): Rango de fechas para la retroalimentación
 
 ## Uso
 
