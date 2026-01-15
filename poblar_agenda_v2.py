@@ -100,6 +100,14 @@ class Task:
     end_date: str    # ISO 8601: YYYY-MM-DD
     emoji: str = "📚"
     weight: Optional[int] = None  # Peso evaluativo
+    stage: Optional[str] = None   # Inicial, Intermedia, Final
+    feedback_start_date: Optional[str] = None
+    feedback_end_date: Optional[str] = None
+    topic: Optional[str] = None
+    activity_type: Optional[str] = None  # Individual, Colaborativa
+    deliverable: Optional[str] = None    # PDF, Word, etc.
+    unit: Optional[str] = None           # Unidad 1, Unidad 2, etc.
+    recommendations: Optional[str] = None
 
 
 # =============================================================================
@@ -122,9 +130,9 @@ Para cada actividad devuelve un objeto JSON con:
 - "feedback_end_date": Fecha cierre retroalimentación formato YYYY-MM-DD
 - "topic": Tema de la actividad
 - "activity_type": Tipo de actividad (ej: "Colaborativa", "Individual")
-- "deliverable": Entregable de la actividad (ej: "Documento escrito", "Presentación", "Video", "Código")
-- "unit": Unidad de la actividad (ej: "Unidad 1", "Unidad 2", "Unidad 3", "Unidad 4")
-- "recommendations": Recomendaciones de contenido para la actividad (libros, videos, etc.)
+- "deliverable": Entregable de la actividad (ej: "Documento escrito", "Presentación", "Video", "Código", "Cuestionario", "Foro", "Zip", "PDF")
+- "unit": Unidad de la actividad (ej: "Unidad 1", "Unidad 2", "Unidad 3", "Unidad 4", "Inicio", "Final")
+- "recommendations": Recomendaciones de estudio (libros, videos, OVI, OVA, etc.) mencionado en la descripción o entorno inicial.
 
 Retorna SOLO el array JSON, sin explicaciones.
 
@@ -207,6 +215,14 @@ def extract_tasks_with_gemini(html_content: str, config: Config) -> list[Task]:
                 end_date=task_dict.get("end_date", ""),
                 emoji=task_dict.get("emoji", "📚"),
                 weight=task_dict.get("weight"),
+                stage=task_dict.get("stage"),
+                feedback_start_date=task_dict.get("feedback_start_date"),
+                feedback_end_date=task_dict.get("feedback_end_date"),
+                topic=task_dict.get("topic"),
+                activity_type=task_dict.get("activity_type"),
+                deliverable=task_dict.get("deliverable"),
+                unit=task_dict.get("unit"),
+                recommendations=task_dict.get("recommendations"),
             )
             tasks.append(task)
         except Exception as e:
@@ -432,31 +448,72 @@ def create_task_in_notion(
                 "start": task.end_date,
             }
         }
-    
+        
+    # Map additional properties
+    if task.weight is not None:
+        properties["Puntos"] = {"number": task.weight}
+        
+    if task.stage:
+        properties["Etapa"] = {"select": {"name": task.stage}}
+        
+    if task.topic:
+        properties["Tema"] = {
+            "rich_text": [{"text": {"content": task.topic}}]
+        }
+        
+    if task.activity_type:
+        properties["Tipo Actividad"] = {"select": {"name": task.activity_type}}
+        
+    if task.deliverable:
+        # Multi-select requires a list of dicts
+        properties["Tipo Entregable"] = {"multi_select": [{"name": task.deliverable}]}
+        
+    if task.unit:
+        properties["Unidad"] = {"multi_select": [{"name": task.unit}]}
+
+    if task.feedback_start_date:
+        feedback_date = {"start": task.feedback_start_date}
+        if task.feedback_end_date:
+            feedback_date["end"] = task.feedback_end_date
+        properties["Entrega Retroalimentación"] = {"date": feedback_date}
+
     # Intentar agregar Status (puede fallar si la propiedad no existe o tiene otro nombre)
     # Lo manejamos de forma opcional
     
+    # Construct block children content
+    children = []
+    
+    if task.description:
+        children.append({
+            "object": "block",
+            "type": "paragraph",
+            "paragraph": {
+                "rich_text": [{"type": "text", "text": {"content": task.description}}]
+            }
+        })
+        
+    if task.recommendations:
+        children.append({
+            "object": "block",
+            "type": "heading_3",
+            "heading_3": {
+                "rich_text": [{"type": "text", "text": {"content": "Recomendaciones"}}]
+            }
+        })
+        children.append({
+            "object": "block",
+            "type": "paragraph",
+            "paragraph": {
+                "rich_text": [{"type": "text", "text": {"content": task.recommendations}}]
+            }
+        })
+
     try:
         response = client.pages.create(
             parent={"database_id": config.tasks_db_id},
             icon={"type": "emoji", "emoji": task.emoji},
             properties=properties,
-            children=[
-                {
-                    "object": "block",
-                    "type": "paragraph",
-                    "paragraph": {
-                        "rich_text": [
-                            {
-                                "type": "text",
-                                "text": {
-                                    "content": task.description
-                                }
-                            }
-                        ]
-                    }
-                }
-            ] if task.description else []
+            children=children
         )
         
         return response.get("id")
@@ -599,6 +656,11 @@ Ejemplos:
         weight_str = f" ({task.weight} pts)" if task.weight else ""
         print(f"   {i}. {task.emoji} {task.title}{weight_str}")
         print(f"      📅 {task.start_date} → {task.end_date}")
+        if task.stage: print(f"      🏁 Etapa: {task.stage}")
+        if task.unit: print(f"      📦 Unidad: {task.unit}")
+        if task.activity_type: print(f"      👥 Tipo: {task.activity_type}")
+        if task.deliverable: print(f"      📄 Entregable: {task.deliverable}")
+        if task.feedback_start_date: print(f"      💬 Retroalimentación: {task.feedback_start_date} → {task.feedback_end_date}")
     
     # 4. Buscar curso en Notion
     print("\n--- Contexto Notion ---")
